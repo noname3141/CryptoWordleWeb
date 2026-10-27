@@ -1,0 +1,369 @@
+/* ===================================================================
+   Wordle On-Chain — Dark Theme Stylesheet
+   Inspired by the original NYT Wordle colour scheme.
+   =================================================================== */
+
+/* ---- Reset & Base ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Clear Sans", "Helvetica Neue", Arial, sans-serif;
+  background-color: #121213;
+  color: #d7dadc;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+
+#root {
+  width: 100%;
+}
+
+.app {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+}
+
+/* ---- Header ---- */
+.app-header {
+  text-align: center;
+  padding: 20px 0 12px;
+  border-bottom: 1px solid #3a3a3c;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.app-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: #818384;
+  margin-top: 4px;
+}
+
+/* ---- Wallet ---- */
+.connect-wallet {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.connect-btn {
+  background: #538d4e;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 28px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.connect-btn:hover {
+  background: #6aaa64;
+}
+
+.connect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wallet-connected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1a1a1b;
+  border: 1px solid #3a3a3c;
+  border-radius: 8px;
+  padding: 8px 16px;
+}
+
+.wallet-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6aaa64;
+}
+
+.wallet-address {
+  font-family: "Courier New", monospace;
+  font-size: 0.9rem;
+  color: #d7dadc;
+}
+
+.wallet-badge {
+  font-size: 0.75rem;
+  color: #6aaa64;
+  font-weight: 600;
+}
+
+.wallet-error {
+  color: #e74c3c;
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+
+/* ---- Connect Prompt ---- */
+.connect-prompt {
+  text-align: center;
+  margin-top: 60px;
+  color: #818384;
+  font-size: 1.1rem;
+}
+
+/* ---- Game Container ---- */
+.game-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  flex: 1;
+}
+
+/* ---- Board ---- */
+.board {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 24px;
+}
+
+.board-row {
+  display: flex;
+  gap: 5px;
+}
+
+/* ---- Tiles ---- */
+.tile {
+  width: 62px;
+  height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 2px;
+  user-select: none;
+}
+
+.tile-empty {
+  border: 2px solid #3a3a3c;
+  background: transparent;
+}
+
+.tile-filled {
+  border: none;
+  color: #fff;
+  animation: flipIn 0.4s ease forwards;
+}
+
+.tile-green {
+  background-color: #6aaa64;
+}
+
+.tile-yellow {
+  background-color: #c9b458;
+}
+
+.tile-gray {
+  background-color: #3a3a3c;
+}
+
+/* ---- Flip Animation ---- */
+@keyframes flipIn {
+  0% {
+    transform: rotateX(90deg);
+    opacity: 0;
+  }
+  100% {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+/* ---- Guess Input ---- */
+.guess-input {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 340px;
+  margin-bottom: 20px;
+}
+
+.guess-input input {
+  flex: 1;
+  background: #1a1a1b;
+  border: 2px solid #3a3a3c;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-align: center;
+  color: #d7dadc;
+  outline: none;
+  text-transform: uppercase;
+  transition: border-color 0.2s;
+}
+
+.guess-input input:focus {
+  border-color: #565758;
+}
+
+.guess-input input:disabled {
+  opacity: 0.5;
+}
+
+.guess-input button {
+  background: #538d4e;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.guess-input button:hover:not(:disabled) {
+  background: #6aaa64;
+}
+
+.guess-input button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinner-text {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ---- Game Status ---- */
+.game-status {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-banner {
+  width: 100%;
+  text-align: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.status-win {
+  background: rgba(106, 170, 100, 0.2);
+  border: 1px solid #6aaa64;
+  color: #6aaa64;
+}
+
+.status-loss {
+  background: rgba(231, 76, 60, 0.2);
+  border: 1px solid #e74c3c;
+  color: #e74c3c;
+}
+
+.status-error {
+  background: rgba(231, 76, 60, 0.15);
+  border: 1px solid #c0392b;
+  color: #e74c3c;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.tx-info {
+  font-size: 0.8rem;
+  color: #818384;
+}
+
+.tx-info code {
+  font-family: "Courier New", monospace;
+  color: #d7dadc;
+  background: #1a1a1b;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.remaining-guesses {
+  font-size: 0.9rem;
+  color: #818384;
+}
+
+/* ---- Footer ---- */
+.app-footer {
+  margin-top: auto;
+  padding: 20px 0;
+  text-align: center;
+  width: 100%;
+  border-top: 1px solid #3a3a3c;
+}
+
+.app-footer p {
+  font-size: 0.8rem;
+  color: #818384;
+}
+
+.legend-green {
+  color: #6aaa64;
+}
+.legend-yellow {
+  color: #c9b458;
+}
+.legend-gray {
+  color: #818384;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 400px) {
+  .tile {
+    width: 52px;
+    height: 52px;
+    font-size: 1.6rem;
+  }
+
+  .app-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .guess-input {
+    flex-direction: column;
+  }
+}
