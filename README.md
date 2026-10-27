@@ -25,27 +25,28 @@ A provably fair, on-chain implementation of the Wordle word-guessing game. The c
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Frontend (React)                         │
+│                     Frontend (React)                        │
 │  ┌──────────────┐  ┌────────────┐  ┌─────────────────────┐  │
 │  │ ConnectWallet│  │ WordleBoard│  │ GuessInput          │  │
 │  └──────┬───────┘  └─────▲──────┘  └──────────┬──────────┘  │
-│         │                │                     │             │
-│         │          ┌─────┴─────┐               │             │
-│         └──────────│useWordle  │◄──────────────┘             │
-│                    │  (hook)   │                              │
-│                    └─────┬─────┘                              │
-│                          │ ethers.js                          │
-└──────────────────────────┼───────────────────────────────────┘
+│         │                │                    │             │
+│         │          ┌─────┴─────┐              │             │
+│         └──────────│useWordle  │◄─────────────┘             │
+│                    │  (hook)   │                            │
+│                    └─────┬─────┘                            │
+│                          │ ethers.js                        │
+└──────────────────────────┼──────────────────────────────────┘
                            │
-                    ┌──────▼──────┐
-                    │  Ethereum   │
-                    │  (Hardhat)  │
-                    │             │
-                    │ WordleOnChain.sol                         │
-                    │  - solutionHash                           │
-                    │  - submitGuess()                          │
-                    │  - Events: GuessResult, GameWon, GameOver │
-                    └─────────────┘
+              ┌────────────▼─────────────┐
+              │  Ethereum                │
+              │  (Hardhat)               │
+              │                          │
+              │ WordleOnChain.sol        │
+              │  - solutionHash          │
+              │  - submitGuess()         │
+              │  - Events: GuessResult,  │
+              │      GameWon, GameOver   │
+              └──────────────────────────┘
 ```
 
 **Data Flow:**
@@ -59,6 +60,7 @@ A provably fair, on-chain implementation of the Wordle word-guessing game. The c
 ---
 
 ## How It Works
+
 
 | Result Code | Color  | Meaning                         |
 |:-----------:|:------:|:--------------------------------|

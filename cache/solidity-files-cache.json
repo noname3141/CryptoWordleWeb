@@ -36,6 +36,42 @@
       "artifacts": [
         "WordleOnChain"
       ]
+    },
+    "/home/vinayak/Vinayak/projects/CryptoWordleWeb/contracts/WordleOnChain.sol": {
+      "lastModificationDate": 1793119303751,
+      "contentHash": "8c2d858fdd6563fe3ee9cc4d321cfc0e",
+      "sourceName": "contracts/WordleOnChain.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "WordleOnChain"
+      ]
     }
   }
 }
