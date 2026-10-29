@@ -28,7 +28,7 @@ A provably fair, on-chain implementation of Wordle built on Ethereum. The core g
 
 ## Key Features
 
-- **On-Chain 500-Word Bank**: Packed as `bytes5[]` to cut storage gas costs by ~70%.
+- **On-Chain 6,030-Word Bank**: Packed as `bytes5[]` to cut storage gas costs by ~70%.
 - **Automated Random Selection**: Selects secret words dynamically each round using EVM entropy (`block.prevrandao`).
 - **Multi-Round Lifecycle**: `currentGameId` isolates player attempts per round, allowing continuous play across new rounds.
 - **Strict Dictionary Validation**: Rejects invalid/made-up words (`"Word not in dictionary"`) with O(1) mapping lookups.
@@ -127,7 +127,7 @@ uint256 randomIndex = uint256(
 bytes5 chosen = wordBank[randomIndex];
 ```
 
-- **Gas Optimization**: 500 words are stored as `bytes5[]` (packed into ~79 storage slots vs. hundreds for dynamic `string[]`).
+- **Gas Optimization**: 6,030 words are stored as `bytes5[]` (packed into storage slots vs. dynamic `string[]`).
 - **Round Isolation**: Starting a new round (`startRandomGame()` or `startNewGame()`) increments `currentGameId`, archiving the previous solution in `roundSolutions` and giving every player a fresh set of 6 attempts.
 
 ---
@@ -220,7 +220,7 @@ cd ..
 npx hardhat node
 ```
 
-**Terminal 2 — Deploy the contract with the 500-word bank:**
+**Terminal 2 — Deploy the contract with the 6,030-word bank:**
 
 ```bash
 npx hardhat run scripts/deploy.js --network localhost
@@ -229,15 +229,14 @@ npx hardhat run scripts/deploy.js --network localhost
 Expected output:
 
 ```
-Loading 500-word dictionary...
-Prepared 500 words formatted as bytes5.
-Deploying WordleOnChain with initial batch of 200 words...
+Loading 6,030-word dictionary...
+Prepared 6030 words formatted as bytes5.
+Deploying WordleOnChain with initial batch of 250 words...
 WordleOnChain deployed to: 0x5FbDB2315678afecb367f032d93F642f64180aa3
-Uploading words 201 to 400...
-Uploading words 401 to 500...
+Uploading words in batches...
 
 Deployment Complete!
-Total words in bank: 500
+Total words in bank: 6030
 Initial Game ID: 1
 Initial Solution Hash: 0x...
 
@@ -288,8 +287,8 @@ CryptoWordleWeb/
 ├── contracts/
 │   └── WordleOnChain.sol       # Core smart contract
 ├── scripts/
-│   ├── deploy.js               # Deployment script with batched 500-word upload
-│   └── words500.json           # 500 curated 5-letter English words
+│   ├── deploy.js               # Deployment script with batched 6,030-word upload
+│   └── words6030.json          # 6,030 curated 5-letter English words
 ├── test/
 │   └── WordleOnChain.test.js   # 30 comprehensive Hardhat unit tests
 ├── frontend/

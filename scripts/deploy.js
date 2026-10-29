@@ -8,8 +8,8 @@ function toBytes5(word) {
 }
 
 async function main() {
-  console.log("Loading 500-word dictionary...");
-  const wordsPath = path.join(__dirname, "words500.json");
+  console.log("Loading 6,030-word dictionary...");
+  const wordsPath = path.join(__dirname, "words6030.json");
   const wordsList = JSON.parse(fs.readFileSync(wordsPath, "utf-8"));
 
   const bytes5Words = wordsList.map(toBytes5);
@@ -17,8 +17,8 @@ async function main() {
 
   const WordleOnChain = await hre.ethers.getContractFactory("WordleOnChain");
 
-  // Deploy with first batch (e.g. 200 words) to stay well within single transaction gas limit
-  const BATCH_SIZE = 200;
+  // Deploy with first batch (e.g. 250 words) to stay well within single transaction gas limit
+  const BATCH_SIZE = 250;
   const initialBatch = bytes5Words.slice(0, BATCH_SIZE);
 
   console.log(`Deploying WordleOnChain with initial batch of ${initialBatch.length} words...`);
