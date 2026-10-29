@@ -3,120 +3,159 @@ pragma solidity ^0.8.20;
 
 /**
  * @title WordleOnChain
- * @notice An on-chain implementation of the Wordle word-guessing game.
- *
- * @dev SECURITY & PRIVACY TRADE-OFFS
- * ---------------------------------------------------------------------------
- * 1. **Why the solution is hashed (`solutionHash`)**
- *    The keccak256 hash of the solution word is stored publicly so that anyone
- *    can later verify the word was NOT changed mid-game.  This gives provable
- *    fairness: after a round ends the owner reveals the plaintext and anyone
- *    can check `keccak256(abi.encodePacked(revealedWord)) == solutionHash`.
- *
- * 2. **Why the plaintext solution is also stored (the big trade-off)**
- *    Solidity has no efficient way to do per-letter comparison against a hash
- *    alone.  We therefore store the actual solution string so `submitGuess`
- *    can iterate over its bytes.  This means:
- *      - Miners / validators executing the transaction can read it.
- *      - Anyone who knows how to read raw contract storage slots can extract
- *        it, because `private` in Solidity only prevents *other contracts*
- *        from reading the variable — it does NOT hide data from off-chain
- *        observers.  Tools like `eth_getStorageAt` expose it trivially.
- *
- *    **How to fix this in production:**
- *      a) *Commit-reveal with an off-chain oracle*: the contract stores only
- *         the hash; an oracle (or the owner's backend) evaluates guesses
- *         off-chain and posts signed results.  Players can dispute via the
- *         hash after the round.
- *      b) *Zero-Knowledge Proofs*: the evaluator submits a ZK proof that the
- *         guess was evaluated correctly against a word whose hash matches
- *         `solutionHash`, without revealing the word itself.
- *
- * 3. **Gas considerations for string operations**
- *    Solidity strings are dynamically-sized `bytes`.  Every byte-level
- *    comparison, copy, or conversion costs gas proportional to the length.
- *    Since Wordle words are fixed at 5 ASCII characters the cost is bounded
- *    and acceptable, but this pattern should not be generalised to
- *    arbitrarily long strings without careful gas budgeting.
- * ---------------------------------------------------------------------------
+ * @notice An on-chain implementation of Wordle supporting random word selection from a word bank.
  */
 contract WordleOnChain {
     // -----------------------------------------------------------------------
     // State Variables
     // -----------------------------------------------------------------------
 
-    /// @notice The deployer / admin who can set new solutions.
     address public owner;
 
-    /// @notice keccak256 hash of the current lowercase solution word.
-    /// @dev Stored publicly for provable fairness — anyone can verify that the
-    ///      word was not swapped mid-game by checking the hash after reveal.
+    /// @notice keccak256 hash of the current active solution
     bytes32 public solutionHash;
 
-    /// @dev The actual plaintext solution (lowercase, 5 ASCII letters).
-    ///      Marked `private` but remember: `private` only restricts Solidity-
-    ///      level access.  Any off-chain observer can still read this from the
-    ///      contract's storage slots using `eth_getStorageAt`.
+    /// @dev Plaintext solution for on-chain letter verification
     string private solution;
+    
+    /// @notice On-chain dictionary of 5-letter words stored as bytes5 for gas efficiency
+    bytes5[] public wordBank;
+    
+    /// @notice Tracks current round/game ID
+    uint256 public currentGameId;
 
-    /// @notice Maximum number of guesses each player is allowed.
     uint8 public constant MAX_GUESSES = 6;
 
-    /// @notice Number of guesses a player has submitted so far.
-    mapping(address => uint8) public attempts;
+    /// @notice (player => gameId => attempts)
+    mapping(address => mapping(uint256 => uint8)) public attempts;
 
-    /// @notice Whether the player has correctly guessed the word.
-    mapping(address => bool) public hasWon;
+    /// @notice (player => gameId => hasWon)
+    mapping(address => mapping(uint256 => bool)) public hasWon;
 
-    /// @notice Whether the player's game is over (won OR exhausted guesses).
-    mapping(address => bool) public gameOver;
+    /// @notice (player => gameId => gameOver)
+    mapping(address => mapping(uint256 => bool)) public gameOver;
 
     // -----------------------------------------------------------------------
     // Events
     // -----------------------------------------------------------------------
 
-    /// @notice Emitted after every valid guess with the per-letter result.
-    /// @param result Each element is 2 (green), 1 (yellow), or 0 (gray).
     event GuessResult(
         address indexed player,
+        uint256 indexed gameId,
         string guess,
         uint8[5] result,
         uint8 attemptNumber
     );
 
-    /// @notice Emitted when a player guesses the word correctly.
-    event GameWon(address indexed player, uint8 attempts);
+    event GameWon(address indexed player, uint256 gameId, uint8 attempts);
 
-    /// @notice Emitted when a player exhausts all guesses without winning.
-    event GameOver(address indexed player);
+    event GameOver(address indexed player, uint256 gameId);
 
-    /// @notice Emitted when the owner sets a new solution word.
-    event NewGameStarted(bytes32 solutionHash);
+    event NewGameStarted(uint256 indexed gameId, bytes32 solutionHash);
+    
+    event WordsAdded(uint256 countAdded, uint256 totalWords);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner");
+        _;
+    }
 
     // -----------------------------------------------------------------------
     // Constructor
     // -----------------------------------------------------------------------
 
     /**
-     * @param _solution The 5-letter lowercase solution word for the first
-     *                   round.
+     * @param _initialWords Optional initial batch of 5-letter words in bytes5 format.
      */
-    constructor(string memory _solution) {
-        require(bytes(_solution).length == 5, "Solution must be 5 letters");
-
+    constructor(bytes5[] memory _initialWords) {
         owner = msg.sender;
 
-        // Store the solution in lowercase and its hash.
+        if (_initialWords.length > 0) {
+            _appendWords(_initialWords);
+            _pickNewRandomSolution();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Word Bank Management
+    // -----------------------------------------------------------------------
+
+    /**
+     * @notice Add words to the word bank in batches
+     * @param _words Array of 5-letter words encoded as bytes5
+     */
+    function addWords(bytes5[] calldata _words) external onlyOwner {
+        _appendWords(_words);
+    }
+
+    function _appendWords(bytes5[] memory _words) internal {
+        for (uint256 i = 0; i < _words.length; i++) {
+            wordBank.push(_words[i]);
+        }
+        emit WordsAdded(_words.length, wordBank.length);
+    }
+
+    // -----------------------------------------------------------------------
+    // Game Management (Random / Custom)
+    // -----------------------------------------------------------------------
+
+    /**
+     * @notice Pick a random word from the word bank and start a new game round
+     */
+    function startRandomGame() external onlyOwner {
+        _pickNewRandomSolution();
+    }
+
+    function _pickNewRandomSolution() internal {
+        require(wordBank.length > 0, "Word bank is empty");
+
+        uint256 randomIndex = uint256(
+            keccak256(
+                abi.encodePacked(
+                    block.prevrandao,
+                    block.timestamp,
+                    msg.sender,
+                    currentGameId,
+                    wordBank.length
+                )
+            )
+        ) % wordBank.length;
+
+        bytes5 chosen = wordBank[randomIndex];
+
+        bytes memory solBytes = new bytes(5);
+        for (uint8 i = 0; i < 5; i++) {
+            solBytes[i] = _toLower(chosen[i]);
+        }
+
+        currentGameId++;
+        solution = string(solBytes);
+        solutionHash = keccak256(abi.encodePacked(solution));
+
+        emit NewGameStarted(currentGameId, solutionHash);
+    }
+
+    /**
+     * @notice Owner-only: manually set a specific 5-letter solution (useful for testing or fixed daily word)
+     * @param _solution The 5-letter solution word
+     */
+    function startNewGame(string memory _solution) external onlyOwner {
+        require(bytes(_solution).length == 5, "Solution must be 5 letters");
+
         bytes memory solBytes = bytes(_solution);
         for (uint8 i = 0; i < 5; i++) {
             solBytes[i] = _toLower(solBytes[i]);
         }
+
+        currentGameId++;
         solution = string(solBytes);
         solutionHash = keccak256(abi.encodePacked(solution));
+
+        emit NewGameStarted(currentGameId, solutionHash);
     }
 
     // -----------------------------------------------------------------------
-    // External / Public Functions
+    // External Gameplay Functions
     // -----------------------------------------------------------------------
 
     /**
@@ -126,37 +165,15 @@ contract WordleOnChain {
      *         2 = correct letter & position (Green),
      *         1 = correct letter, wrong position (Yellow),
      *         0 = letter not in solution (Gray).
-     *
-     * @dev Duplicate-letter handling
-     * ──────────────────────────────
-     * The algorithm uses a classic two-pass approach so that duplicates are
-     * scored correctly:
-     *
-     *   **Pass 1 — Exact matches (Greens):**
-     *     Walk both strings simultaneously.  Wherever the letters match, mark
-     *     the result as 2 and flag that solution position as "used" so it
-     *     cannot also satisfy a Yellow in Pass 2.
-     *
-     *   **Pass 2 — Misplaced matches (Yellows):**
-     *     For every guess position that was NOT an exact match, scan the
-     *     solution for an *unused* occurrence of that letter.  If found, mark
-     *     the result as 1 and flag that solution position as used.  Otherwise
-     *     leave the result as 0.
-     *
-     * Example: solution = "apple", guess = "puppy"
-     *   Pass 1: position 2 → 'p'=='p' → Green.  used = [_,_,X,_,_]
-     *   Pass 2: pos 0 'p' → finds unused 'p' at pos 1 → Yellow.  used = [_,X,X,_,_]
-     *           pos 1 'u' → not found → Gray.
-     *           pos 3 'p' → no more unused 'p's → Gray.
-     *           pos 4 'y' → not found → Gray.
-     *   Result: [1, 0, 2, 0, 0]
      */
     function submitGuess(string memory guess)
         external
         returns (uint8[5] memory result)
     {
-        require(!gameOver[msg.sender], "Game is already over");
-        require(attempts[msg.sender] < MAX_GUESSES, "No attempts remaining");
+        uint256 gid = currentGameId;
+        require(gid > 0, "No active game");
+        require(!gameOver[msg.sender][gid], "Game is already over");
+        require(attempts[msg.sender][gid] < MAX_GUESSES, "No attempts remaining");
         require(bytes(guess).length == 5, "Guess must be 5 letters");
 
         // Convert guess to lowercase bytes for comparison.
@@ -189,13 +206,12 @@ contract WordleOnChain {
                     break;
                 }
             }
-            // If no unused match was found, result[i] stays 0 (Gray).
         }
 
-        // Increment attempt counter.
-        attempts[msg.sender] += 1;
+        // Increment attempt counter for current game
+        attempts[msg.sender][gid] += 1;
 
-        // Check for a win (all positions are Green).
+        // Check for a win (all positions are Green)
         bool won = true;
         for (uint8 i = 0; i < 5; i++) {
             if (result[i] != 2) {
@@ -205,77 +221,51 @@ contract WordleOnChain {
         }
 
         if (won) {
-            hasWon[msg.sender] = true;
-            gameOver[msg.sender] = true;
-            emit GameWon(msg.sender, attempts[msg.sender]);
-        } else if (attempts[msg.sender] == MAX_GUESSES) {
-            gameOver[msg.sender] = true;
-            emit GameOver(msg.sender);
+            hasWon[msg.sender][gid] = true;
+            gameOver[msg.sender][gid] = true;
+            emit GameWon(msg.sender, gid, attempts[msg.sender][gid]);
+        } else if (attempts[msg.sender][gid] == MAX_GUESSES) {
+            gameOver[msg.sender][gid] = true;
+            emit GameOver(msg.sender, gid);
         }
 
-        // Emit the result for off-chain UIs to consume.
         emit GuessResult(
             msg.sender,
+            gid,
             string(guessBytes),
             result,
-            attempts[msg.sender]
+            attempts[msg.sender][gid]
         );
 
         return result;
     }
 
-    /**
-     * @notice Owner-only: set a new solution word for the next round.
-     * @param _solution The new 5-letter lowercase solution.
-     *
-     * @dev NOTE: This function does NOT reset individual player states
-     *      (`attempts`, `hasWon`, `gameOver`).  In a production contract you
-     *      would introduce a `gameId` counter that increments here, and all
-     *      player-state mappings would be keyed by `(gameId, player)` so that
-     *      each round is cleanly isolated.
-     */
-    function startNewGame(string memory _solution) external {
-        require(msg.sender == owner, "Only owner");
-        require(bytes(_solution).length == 5, "Solution must be 5 letters");
+    // -----------------------------------------------------------------------
+    // View Functions
+    // -----------------------------------------------------------------------
 
-        bytes memory solBytes = bytes(_solution);
-        for (uint8 i = 0; i < 5; i++) {
-            solBytes[i] = _toLower(solBytes[i]);
-        }
-        solution = string(solBytes);
-        solutionHash = keccak256(abi.encodePacked(solution));
-
-        emit NewGameStarted(solutionHash);
-    }
-
-    /**
-     * @notice View how many guesses `player` has used.
-     */
     function getAttempts(address player) external view returns (uint8) {
-        return attempts[player];
+        return attempts[player][currentGameId];
     }
 
-    /**
-     * @notice Check whether `player`'s game is over.
-     */
     function isGameOver(address player) external view returns (bool) {
-        return gameOver[player];
+        return gameOver[player][currentGameId];
+    }
+
+    function hasPlayerWon(address player) external view returns (bool) {
+        return hasWon[player][currentGameId];
+    }
+
+    function getWordCount() external view returns (uint256) {
+        return wordBank.length;
     }
 
     // -----------------------------------------------------------------------
     // Internal Helpers
     // -----------------------------------------------------------------------
 
-    /**
-     * @dev Convert an ASCII uppercase letter (A-Z) to lowercase (a-z).
-     *      Leaves lowercase letters and all other bytes unchanged.
-     *
-     *      Gas note: this is a single comparison + subtraction, so it is
-     *      negligible.  We call it at most 5 times per guess.
-     */
     function _toLower(bytes1 char) internal pure returns (bytes1) {
         if (char >= 0x41 && char <= 0x5A) {
-            // 0x41 = 'A', 0x5A = 'Z'; adding 0x20 maps to lowercase.
             return bytes1(uint8(char) + 0x20);
         }
         return char;

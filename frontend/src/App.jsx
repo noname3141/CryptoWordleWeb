@@ -18,6 +18,7 @@ function App() {
     gameWon,
     gameOver,
     txHash,
+    gameId,
     submitGuess,
     maxGuesses,
   } = useWordle();
@@ -29,7 +30,10 @@ function App() {
       {/* Header */}
       <header className="app-header">
         <h1>⛓️ Wordle On-Chain</h1>
-        <p className="subtitle">Provably fair word guessing on Ethereum</p>
+        <p className="subtitle">
+          Provably fair word guessing on Ethereum
+          {gameId ? ` • Round #${gameId}` : ""}
+        </p>
       </header>
 
       {/* Wallet Connection */}

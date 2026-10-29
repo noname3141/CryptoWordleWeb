@@ -1,45 +1,9 @@
 {
   "_format": "hh-sol-cache-2",
   "files": {
-    "/home/vinayak/Vinayak/projects/web3_dummyps/contracts/WordleOnChain.sol": {
-      "lastModificationDate": 1793115474810,
-      "contentHash": "8c2d858fdd6563fe3ee9cc4d321cfc0e",
-      "sourceName": "contracts/WordleOnChain.sol",
-      "solcConfig": {
-        "version": "0.8.20",
-        "settings": {
-          "evmVersion": "paris",
-          "optimizer": {
-            "enabled": false,
-            "runs": 200
-          },
-          "outputSelection": {
-            "*": {
-              "*": [
-                "abi",
-                "evm.bytecode",
-                "evm.deployedBytecode",
-                "evm.methodIdentifiers",
-                "metadata"
-              ],
-              "": [
-                "ast"
-              ]
-            }
-          }
-        }
-      },
-      "imports": [],
-      "versionPragmas": [
-        "^0.8.20"
-      ],
-      "artifacts": [
-        "WordleOnChain"
-      ]
-    },
     "/home/vinayak/Vinayak/projects/CryptoWordleWeb/contracts/WordleOnChain.sol": {
-      "lastModificationDate": 1793119303751,
-      "contentHash": "8c2d858fdd6563fe3ee9cc4d321cfc0e",
+      "lastModificationDate": 1793290466150,
+      "contentHash": "48fceb2a4b291b905e780ecef5e03bbd",
       "sourceName": "contracts/WordleOnChain.sol",
       "solcConfig": {
         "version": "0.8.20",
