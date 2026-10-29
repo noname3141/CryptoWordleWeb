@@ -15,6 +15,7 @@ export const useWordle = () => {
   const [gameOver, setGameOver] = useState(false);
   const [txHash, setTxHash] = useState(null);
   const [gameId, setGameId] = useState(null);
+  const [revealedSolution, setRevealedSolution] = useState(null);
 
   // Fetch current active round ID
   const refreshGameInfo = useCallback(async () => {
@@ -47,6 +48,7 @@ export const useWordle = () => {
       let resultArray = null;
       let won = false;
       let lost = false;
+      let solutionWord = null;
 
       for (const log of receipt.logs) {
         try {
@@ -64,9 +66,13 @@ export const useWordle = () => {
           }
           if (parsed && parsed.name === "GameWon") {
             won = true;
+            // The 4th argument (index 3) is the revealed solution string
+            solutionWord = parsed.args.solution || parsed.args[3];
           }
           if (parsed && parsed.name === "GameOver") {
             lost = true;
+            // The 3rd argument (index 2) is the revealed solution string
+            solutionWord = parsed.args.solution || parsed.args[2];
           }
         } catch {
           // Unrelated log — ignore
@@ -82,14 +88,21 @@ export const useWordle = () => {
 
       if (won) setGameWon(true);
       if (lost) setGameOver(true);
+      if (solutionWord) setRevealedSolution(solutionWord.toUpperCase());
 
       return resultArray;
     } catch (err) {
-      const reason =
+      let reason =
         err.reason ||
         err.shortMessage ||
         err.message ||
         "Transaction failed";
+
+      // Map contract revert reason to a user-friendly message
+      if (reason.includes("Word not in dictionary")) {
+        reason = "Not in word list";
+      }
+
       setError(reason);
       throw err;
     } finally {
@@ -103,6 +116,7 @@ export const useWordle = () => {
     setGameOver(false);
     setError(null);
     setTxHash(null);
+    setRevealedSolution(null);
     refreshGameInfo();
   }, [refreshGameInfo]);
 
@@ -114,6 +128,7 @@ export const useWordle = () => {
     gameOver,
     txHash,
     gameId,
+    revealedSolution,
     submitGuess,
     resetLocal,
     refreshGameInfo,

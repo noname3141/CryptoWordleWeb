@@ -10,7 +10,7 @@ describe("WordleOnChain", function () {
   let owner;
   let player1;
   let player2;
-  const sampleWords = ["crane", "apple", "react", "ghost", "tight", "puppy", "house"].map(toBytes5);
+  const sampleWords = ["crane", "apple", "react", "ghost", "tight", "puppy", "house", "fight", "light", "might", "sight"].map(toBytes5);
 
   beforeEach(async function () {
     [owner, player1, player2] = await ethers.getSigners();
@@ -43,6 +43,12 @@ describe("WordleOnChain", function () {
     it("should set MAX_GUESSES to 6", async function () {
       expect(await wordle.MAX_GUESSES()).to.equal(6);
     });
+
+    it("should mark all initial words as valid in the dictionary", async function () {
+      for (const word of sampleWords) {
+        expect(await wordle.isValidWord(word)).to.be.true;
+      }
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -56,6 +62,14 @@ describe("WordleOnChain", function () {
         .withArgs(2, sampleWords.length + 2);
 
       expect(await wordle.getWordCount()).to.equal(sampleWords.length + 2);
+    });
+
+    it("should mark newly added words as valid", async function () {
+      const newWords = ["train", "plant"].map(toBytes5);
+      await wordle.connect(owner).addWords(newWords);
+
+      expect(await wordle.isValidWord(toBytes5("train"))).to.be.true;
+      expect(await wordle.isValidWord(toBytes5("plant"))).to.be.true;
     });
 
     it("should reject non-owner adding words", async function () {
@@ -75,11 +89,117 @@ describe("WordleOnChain", function () {
   });
 
   // ---------------------------------------------------------------------------
+  // Dictionary Validation (Feature 1)
+  // ---------------------------------------------------------------------------
+  describe("Dictionary Validation", function () {
+    beforeEach(async function () {
+      await wordle.connect(owner).startNewGame("crane");
+    });
+
+    it("should reject a guess that is not in the dictionary", async function () {
+      await expect(
+        wordle.connect(player1).submitGuess("zzzzz")
+      ).to.be.revertedWith("Word not in dictionary");
+    });
+
+    it("should reject another made-up word", async function () {
+      await expect(
+        wordle.connect(player1).submitGuess("abcde")
+      ).to.be.revertedWith("Word not in dictionary");
+    });
+
+    it("should accept a valid dictionary word", async function () {
+      // "ghost" is in our sampleWords
+      await expect(
+        wordle.connect(player1).submitGuess("ghost")
+      ).to.not.be.reverted;
+    });
+
+    it("should accept case-insensitive valid words", async function () {
+      await expect(
+        wordle.connect(player1).submitGuess("GHOST")
+      ).to.not.be.reverted;
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Solution Reveal (Feature 2)
+  // ---------------------------------------------------------------------------
+  describe("Solution Reveal", function () {
+    beforeEach(async function () {
+      await wordle.connect(owner).startNewGame("crane");
+    });
+
+    it("should hide the solution while the player is still playing", async function () {
+      const gid = await wordle.currentGameId();
+      await expect(
+        wordle.connect(player1).getRevealedSolution(gid)
+      ).to.be.revertedWith("Solution hidden until game over");
+    });
+
+    it("should reveal the solution after the player wins", async function () {
+      const gid = await wordle.currentGameId();
+      await wordle.connect(player1).submitGuess("crane");
+
+      const revealed = await wordle.connect(player1).getRevealedSolution(gid);
+      expect(revealed).to.equal("crane");
+    });
+
+    it("should reveal the solution after the player loses (6 wrong guesses)", async function () {
+      const gid = await wordle.currentGameId();
+      await wordle.connect(player1).submitGuess("ghost");
+      await wordle.connect(player1).submitGuess("fight");
+      await wordle.connect(player1).submitGuess("light");
+      await wordle.connect(player1).submitGuess("might");
+      await wordle.connect(player1).submitGuess("sight");
+      await wordle.connect(player1).submitGuess("tight");
+
+      const revealed = await wordle.connect(player1).getRevealedSolution(gid);
+      expect(revealed).to.equal("crane");
+    });
+
+    it("should reveal old round solutions once the round advances", async function () {
+      const gid = await wordle.currentGameId();
+
+      // Player1 hasn't played at all in this round
+      await expect(
+        wordle.connect(player1).getRevealedSolution(gid)
+      ).to.be.revertedWith("Solution hidden until game over");
+
+      // Owner starts a new round — old round is now over for everyone
+      await wordle.connect(owner).startNewGame("house");
+
+      // Now player1 can see the old round's solution even without having played
+      const revealed = await wordle.connect(player1).getRevealedSolution(gid);
+      expect(revealed).to.equal("crane");
+    });
+
+    it("should include solution in GameWon event", async function () {
+      const gid = await wordle.currentGameId();
+      await expect(wordle.connect(player1).submitGuess("crane"))
+        .to.emit(wordle, "GameWon")
+        .withArgs(player1.address, gid, 1, "crane");
+    });
+
+    it("should include solution in GameOver event", async function () {
+      const gid = await wordle.currentGameId();
+      await wordle.connect(player1).submitGuess("ghost");
+      await wordle.connect(player1).submitGuess("fight");
+      await wordle.connect(player1).submitGuess("light");
+      await wordle.connect(player1).submitGuess("might");
+      await wordle.connect(player1).submitGuess("sight");
+
+      await expect(wordle.connect(player1).submitGuess("tight"))
+        .to.emit(wordle, "GameOver")
+        .withArgs(player1.address, gid, "crane");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Deterministic Gameplay (via startNewGame)
   // ---------------------------------------------------------------------------
   describe("Deterministic Gameplay", function () {
     beforeEach(async function () {
-      // Set solution to "crane" for exact testing
       await wordle.connect(owner).startNewGame("crane");
     });
 
@@ -106,7 +226,7 @@ describe("WordleOnChain", function () {
       const gid = await wordle.currentGameId();
       await expect(wordle.connect(player1).submitGuess("crane"))
         .to.emit(wordle, "GameWon")
-        .withArgs(player1.address, gid, 1);
+        .withArgs(player1.address, gid, 1, "crane");
     });
 
     it("should mark the player as having won", async function () {
@@ -119,7 +239,7 @@ describe("WordleOnChain", function () {
       const gid = await wordle.currentGameId();
       await expect(wordle.connect(player1).submitGuess("CRANE"))
         .to.emit(wordle, "GameWon")
-        .withArgs(player1.address, gid, 1);
+        .withArgs(player1.address, gid, 1, "crane");
     });
 
     it("should return correct Yellow and Gray pattern", async function () {
@@ -202,7 +322,7 @@ describe("WordleOnChain", function () {
 
       await expect(wordle.connect(player1).submitGuess("tight"))
         .to.emit(wordle, "GameOver")
-        .withArgs(player1.address, gid);
+        .withArgs(player1.address, gid, "crane");
 
       await expect(
         wordle.connect(player1).submitGuess("react")

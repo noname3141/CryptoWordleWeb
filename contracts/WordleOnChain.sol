@@ -4,6 +4,10 @@ pragma solidity ^0.8.20;
 /**
  * @title WordleOnChain
  * @notice An on-chain implementation of Wordle supporting random word selection from a word bank.
+ *
+ * @dev Features:
+ *   - Dictionary validation: guesses must be valid words present in the word bank.
+ *   - Solution reveal: the secret word is revealed once a player's game ends or the round advances.
  */
 contract WordleOnChain {
     // -----------------------------------------------------------------------
@@ -17,12 +21,18 @@ contract WordleOnChain {
 
     /// @dev Plaintext solution for on-chain letter verification
     string private solution;
-    
+
     /// @notice On-chain dictionary of 5-letter words stored as bytes5 for gas efficiency
     bytes5[] public wordBank;
-    
+
+    /// @notice O(1) lookup to validate that a guess is a real dictionary word
+    mapping(bytes5 => bool) public isValidWord;
+
     /// @notice Tracks current round/game ID
     uint256 public currentGameId;
+
+    /// @dev Historical solutions keyed by gameId, for post-game reveal
+    mapping(uint256 => string) private roundSolutions;
 
     uint8 public constant MAX_GUESSES = 6;
 
@@ -47,12 +57,14 @@ contract WordleOnChain {
         uint8 attemptNumber
     );
 
-    event GameWon(address indexed player, uint256 gameId, uint8 attempts);
+    /// @notice Emitted when a player guesses correctly; includes the revealed solution.
+    event GameWon(address indexed player, uint256 gameId, uint8 attempts, string solution);
 
-    event GameOver(address indexed player, uint256 gameId);
+    /// @notice Emitted when a player exhausts all guesses; includes the revealed solution.
+    event GameOver(address indexed player, uint256 gameId, string solution);
 
     event NewGameStarted(uint256 indexed gameId, bytes32 solutionHash);
-    
+
     event WordsAdded(uint256 countAdded, uint256 totalWords);
 
     modifier onlyOwner() {
@@ -91,6 +103,8 @@ contract WordleOnChain {
     function _appendWords(bytes5[] memory _words) internal {
         for (uint256 i = 0; i < _words.length; i++) {
             wordBank.push(_words[i]);
+            // Mark each word as valid for O(1) dictionary lookup during guesses
+            isValidWord[_words[i]] = true;
         }
         emit WordsAdded(_words.length, wordBank.length);
     }
@@ -131,6 +145,7 @@ contract WordleOnChain {
         currentGameId++;
         solution = string(solBytes);
         solutionHash = keccak256(abi.encodePacked(solution));
+        roundSolutions[currentGameId] = solution;
 
         emit NewGameStarted(currentGameId, solutionHash);
     }
@@ -150,6 +165,7 @@ contract WordleOnChain {
         currentGameId++;
         solution = string(solBytes);
         solutionHash = keccak256(abi.encodePacked(solution));
+        roundSolutions[currentGameId] = solution;
 
         emit NewGameStarted(currentGameId, solutionHash);
     }
@@ -181,6 +197,14 @@ contract WordleOnChain {
         for (uint8 i = 0; i < 5; i++) {
             guessBytes[i] = _toLower(guessBytes[i]);
         }
+
+        // --- Dictionary validation ---
+        // Pack the lowercased guess into bytes5 and check against the valid word set.
+        bytes5 guessBytes5;
+        assembly {
+            guessBytes5 := mload(add(guessBytes, 32))
+        }
+        require(isValidWord[guessBytes5], "Word not in dictionary");
 
         bytes memory solBytes = bytes(solution);
 
@@ -223,10 +247,10 @@ contract WordleOnChain {
         if (won) {
             hasWon[msg.sender][gid] = true;
             gameOver[msg.sender][gid] = true;
-            emit GameWon(msg.sender, gid, attempts[msg.sender][gid]);
+            emit GameWon(msg.sender, gid, attempts[msg.sender][gid], solution);
         } else if (attempts[msg.sender][gid] == MAX_GUESSES) {
             gameOver[msg.sender][gid] = true;
-            emit GameOver(msg.sender, gid);
+            emit GameOver(msg.sender, gid, solution);
         }
 
         emit GuessResult(
@@ -258,6 +282,24 @@ contract WordleOnChain {
 
     function getWordCount() external view returns (uint256) {
         return wordBank.length;
+    }
+
+    /**
+     * @notice Reveal the solution for a given round.
+     * @param _gameId The round ID to reveal.
+     * @return The plaintext solution word.
+     *
+     * @dev Access control:
+     *   - The caller must have finished their game in that round (gameOver == true), OR
+     *   - The round must have already ended (a newer round is active: _gameId < currentGameId).
+     *   This prevents active players from peeking at the current solution.
+     */
+    function getRevealedSolution(uint256 _gameId) external view returns (string memory) {
+        require(
+            gameOver[msg.sender][_gameId] || _gameId < currentGameId,
+            "Solution hidden until game over"
+        );
+        return roundSolutions[_gameId];
     }
 
     // -----------------------------------------------------------------------

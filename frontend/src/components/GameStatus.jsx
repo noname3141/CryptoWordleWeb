@@ -1,25 +1,33 @@
 import React from "react";
 
 /**
- * GameStatus — Displays game state messages: win, loss, errors,
- * transaction hash, and remaining guess count.
+ * GameStatus — Displays game state messages: win/loss with revealed solution,
+ * errors (including "Not in word list"), transaction hash, and remaining guesses.
  */
-const GameStatus = ({ gameWon, gameOver, error, txHash, guessCount, maxGuesses }) => {
+const GameStatus = ({ gameWon, gameOver, error, txHash, guessCount, maxGuesses, revealedSolution }) => {
   const remaining = maxGuesses - guessCount;
 
   return (
     <div className="game-status">
-      {/* Win Banner */}
+      {/* Win Banner — includes the revealed solution */}
       {gameWon && (
         <div className="status-banner status-win">
           🎉 You solved it in {guessCount} guess{guessCount !== 1 ? "es" : ""}!
+          {revealedSolution && (
+            <span className="revealed-word"> The word was <strong>{revealedSolution}</strong>.</span>
+          )}
         </div>
       )}
 
-      {/* Loss Banner */}
+      {/* Loss Banner — includes the revealed solution */}
       {gameOver && !gameWon && (
         <div className="status-banner status-loss">
-          💀 Game Over! Better luck next time.
+          💀 Game Over!
+          {revealedSolution ? (
+            <span className="revealed-word"> The word was <strong>{revealedSolution}</strong>.</span>
+          ) : (
+            " Better luck next time."
+          )}
         </div>
       )}
 

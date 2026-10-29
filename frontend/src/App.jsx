@@ -19,6 +19,7 @@ function App() {
     gameOver,
     txHash,
     gameId,
+    revealedSolution,
     submitGuess,
     maxGuesses,
   } = useWordle();
@@ -57,6 +58,7 @@ function App() {
             txHash={txHash}
             guessCount={guesses.length}
             maxGuesses={maxGuesses}
+            revealedSolution={revealedSolution}
           />
         </main>
       ) : (

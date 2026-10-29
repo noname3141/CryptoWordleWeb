@@ -1,14 +1,18 @@
 # Wordle On-Chain 🟩🟨⬜
 
-A provably fair, on-chain implementation of the Wordle word-guessing game. The core game logic — word validation, attempt tracking, and result computation — executes entirely within an Ethereum smart contract. Each guess is a blockchain transaction, and every game outcome is cryptographically verifiable.
+A provably fair, on-chain implementation of Wordle built on Ethereum. The core game logic — word validation against an on-chain dictionary, letter-by-letter matching, multi-round player tracking, and post-game solution reveal — executes entirely within a Solidity smart contract. Each guess is a blockchain transaction, and every game outcome is cryptographically verifiable.
 
 ---
 
 ## Table of Contents
 
+- [Key Features](#key-features)
 - [Architecture Overview](#architecture-overview)
 - [How It Works](#how-it-works)
+- [On-Chain Randomness & Solution Selection](#on-chain-randomness--solution-selection)
 - [Cryptographic Hashing & Fairness](#cryptographic-hashing--fairness)
+- [Dictionary Validation & Gas Optimization](#dictionary-validation--gas-optimization)
+- [Post-Game Solution Reveal](#post-game-solution-reveal)
 - [Prerequisites](#prerequisites)
 - [Installation & Setup](#installation--setup)
 - [Deploying the Contract](#deploying-the-contract)
@@ -18,6 +22,19 @@ A provably fair, on-chain implementation of the Wordle word-guessing game. The c
 - [Smart Contract API](#smart-contract-api)
 - [Security Considerations](#security-considerations)
 - [Potential Extensions](#potential-extensions)
+- [License](#license)
+
+---
+
+## Key Features
+
+- **On-Chain 500-Word Bank**: Packed as `bytes5[]` to cut storage gas costs by ~70%.
+- **Automated Random Selection**: Selects secret words dynamically each round using EVM entropy (`block.prevrandao`).
+- **Multi-Round Lifecycle**: `currentGameId` isolates player attempts per round, allowing continuous play across new rounds.
+- **Strict Dictionary Validation**: Rejects invalid/made-up words (`"Word not in dictionary"`) with O(1) mapping lookups.
+- **Controlled Post-Game Reveal**: Exposes the secret word only after a player wins, loses (6 guesses), or when the round advances.
+- **Interactive UI**: Real-time round display (`Round #X`), Wordle color grid (Green, Yellow, Gray) with flip animations, and revealed solution banners.
+- **Comprehensive Test Suite**: 30 passing automated tests covering all game mechanics, edge cases, and access controls.
 
 ---
 
@@ -42,25 +59,31 @@ A provably fair, on-chain implementation of the Wordle word-guessing game. The c
               │  (Hardhat)               │
               │                          │
               │ WordleOnChain.sol        │
+              │  - wordBank (bytes5[])   │
+              │  - isValidWord (mapping) │
               │  - solutionHash          │
+              │  - currentGameId         │
               │  - submitGuess()         │
+              │  - getRevealedSolution() │
               │  - Events: GuessResult,  │
               │      GameWon, GameOver   │
               └──────────────────────────┘
 ```
 
 **Data Flow:**
-1. User connects MetaMask wallet via `ConnectWallet` component.
-2. User types a 5-letter word into `GuessInput`.
-3. `useWordle` hook calls `contract.submitGuess(guess)` — this sends a transaction.
-4. The EVM executes the letter-comparison logic and emits a `GuessResult` event.
-5. The hook parses the event from the transaction receipt and updates the `WordleBoard` grid.
-6. If the player wins or exhausts 6 guesses, `GameWon` or `GameOver` events are emitted.
+1. User connects MetaMask wallet via `ConnectWallet`.
+2. UI displays active round ID (`Round #X`) fetched from `currentGameId`.
+3. User enters a 5-letter word; `GuessInput` submits it to `useWordle`.
+4. `contract.submitGuess(guess)` executes on-chain:
+   - Verifies the guess exists in `isValidWord`.
+   - Compares letters against the secret solution (Greens, Yellows, Grays).
+   - Emits `GuessResult`.
+   - On win (all Greens) or loss (6 attempts), emits `GameWon` / `GameOver` with the revealed solution word.
+5. The frontend displays the result grid and reveals the secret solution on game completion.
 
 ---
 
 ## How It Works
-
 
 | Result Code | Color  | Meaning                         |
 |:-----------:|:------:|:--------------------------------|
@@ -68,40 +91,86 @@ A provably fair, on-chain implementation of the Wordle word-guessing game. The c
 | `1`         | 🟨 Yellow | Correct letter, wrong position   |
 | `0`         | ⬜ Gray   | Letter not in solution           |
 
-The contract uses a **two-pass algorithm** for accurate duplicate-letter handling:
-
-1. **Pass 1 (Greens):** Scan for exact positional matches. Mark matched solution positions as "used."
-2. **Pass 2 (Yellows):** For each non-green guess letter, scan for an unused occurrence in the solution. If found, mark Yellow and consume that position.
+### Two-Pass Duplicate Matching Algorithm
+The contract implements a two-pass algorithm to correctly score duplicate letters:
+1. **Pass 1 (Greens):** Scans for exact positional matches. Flags matched solution positions as "used".
+2. **Pass 2 (Yellows):** For each remaining guess letter, scans for an unused occurrence in the solution. If found, marks Yellow and consumes that position.
 
 **Example:** Solution = `apple`, Guess = `puppy`
-- Pass 1: position 2 (`p`==`p`) → Green. Used: `[_,_,✓,_,_]`
-- Pass 2: `p` at 0 → finds unused `p` at 1 → Yellow. `u` → Gray. `p` at 3 → no unused `p` → Gray. `y` → Gray.
-- **Result: `[1, 0, 2, 0, 0]`**
+- Pass 1: position 2 (`p` == `p`) → Green. Used: `[_, _, ✓, _, _]`
+- Pass 2:
+  - `p` (index 0) → matches unused `p` at index 1 → Yellow.
+  - `u` (index 1) → not in solution → Gray.
+  - `p` (index 3) → no unused `p` remaining → Gray.
+  - `y` (index 4) → not in solution → Gray.
+- **Result:** `[1, 0, 2, 0, 0]`
+
+---
+
+## On-Chain Randomness & Solution Selection
+
+The contract selects its secret solution dynamically using `_pickNewRandomSolution()`:
+
+```solidity
+uint256 randomIndex = uint256(
+    keccak256(
+        abi.encodePacked(
+            block.prevrandao,
+            block.timestamp,
+            msg.sender,
+            currentGameId,
+            wordBank.length
+        )
+    )
+) % wordBank.length;
+
+bytes5 chosen = wordBank[randomIndex];
+```
+
+- **Gas Optimization**: 500 words are stored as `bytes5[]` (packed into ~79 storage slots vs. hundreds for dynamic `string[]`).
+- **Round Isolation**: Starting a new round (`startRandomGame()` or `startNewGame()`) increments `currentGameId`, archiving the previous solution in `roundSolutions` and giving every player a fresh set of 6 attempts.
 
 ---
 
 ## Cryptographic Hashing & Fairness
 
-The solution word is committed to the blockchain via its `keccak256` hash at deployment time:
+At the start of every round, the solution is committed to the blockchain:
 
 ```
-solutionHash = keccak256(abi.encodePacked("crane"))
-             = 0x1b0b9...  (32-byte digest)
+solutionHash = keccak256(abi.encodePacked(solution))
 ```
 
-### Why hash?
+- **Provable Fairness**: The hash is public from block 0 of each round. When the round completes and the word is revealed, anyone can verify `keccak256(revealedWord) == solutionHash` to prove the word was never modified mid-game.
+- **Production Extension**: For competitive tournaments with real stakes, pseudo-randomness (`block.prevrandao`) can be replaced with **Chainlink VRF**, and off-chain zero-knowledge proofs (zk-SNARKs via Circom or Noir) can be used to prevent mempool front-running.
 
-- **Commitment scheme:** The hash is published on-chain before any player submits a guess. After the game, anyone can verify that the word was never changed: `keccak256(revealedWord) == solutionHash`.
-- **Tamper-proof:** Neither the contract owner nor any third party can modify the solution mid-game without changing the hash (which would be visible on-chain).
+---
 
-### Known Limitations
+## Dictionary Validation & Gas Optimization
 
-- **Plaintext storage trade-off:** To enable per-letter validation on-chain, the solution is also stored as a `string private solution`. The `private` keyword does NOT hide data from off-chain observers — raw storage is readable via `eth_getStorageAt`.
-- **Small keyspace:** The 5-letter English word space (~12,000 common words) is small enough to brute-force against the hash.
-- **Production solutions:**
-  - **Salted hashing:** `keccak256(abi.encodePacked(word, salt))` prevents rainbow tables. Reveal `(word, salt)` post-game.
-  - **Commit-reveal with oracle:** Store only the hash; an off-chain service evaluates guesses and posts signed results.
-  - **ZK Proofs (zkSNARKs/Noir):** Prove correct evaluation without revealing the word.
+To prevent players from spamming non-words (e.g. `"ZZZZZ"`), the contract maintains an on-chain dictionary:
+
+- **O(1) Verification**: Words loaded into `wordBank` automatically populate `mapping(bytes5 => bool) public isValidWord`.
+- **Inline Assembly Slicing**:
+  ```solidity
+  bytes5 guessBytes5;
+  assembly {
+      guessBytes5 := mload(add(guessBytes, 32))
+  }
+  require(isValidWord[guessBytes5], "Word not in dictionary");
+  ```
+- **User Experience**: The frontend catches this revert and immediately surfaces a friendly `"Not in word list"` alert without burning unnecessary gas.
+
+---
+
+## Post-Game Solution Reveal
+
+Unlike traditional contracts that keep solutions permanently private or leak them prematurely:
+
+1. **Storage**: Solutions are indexed by round ID: `mapping(uint256 => string) private roundSolutions`.
+2. **Access Control**: `getRevealedSolution(gameId)` enforces that the secret word is only visible if:
+   - `gameOver[msg.sender][gameId] == true` (the caller has won or exhausted all 6 guesses), OR
+   - `gameId < currentGameId` (the round has officially ended and advanced).
+3. **Event Payloads**: `GameWon` and `GameOver` events directly broadcast the solution word to update the UI instantly without extra RPC calls.
 
 ---
 
@@ -122,7 +191,7 @@ solutionHash = keccak256(abi.encodePacked("crane"))
 
 ```bash
 git clone <repository-url>
-cd web3_dummyps
+cd CryptoWordleWeb
 ```
 
 ### 2. Install Smart Contract Dependencies
@@ -148,31 +217,38 @@ cd ..
 **Terminal 1 — Start the local blockchain:**
 
 ```bash
-npm run node
+npx hardhat node
 ```
 
-This starts a Hardhat node at `http://127.0.0.1:8545` with pre-funded test accounts.
-
-**Terminal 2 — Deploy the contract:**
+**Terminal 2 — Deploy the contract with the 500-word bank:**
 
 ```bash
-npm run deploy:local
+npx hardhat run scripts/deploy.js --network localhost
 ```
 
 Expected output:
 
 ```
-Deploying WordleOnChain with solution hash...
+Loading 500-word dictionary...
+Prepared 500 words formatted as bytes5.
+Deploying WordleOnChain with initial batch of 200 words...
 WordleOnChain deployed to: 0x5FbDB2315678afecb367f032d93F642f64180aa3
-Solution hash: 0x1b0b9...
-```
+Uploading words 201 to 400...
+Uploading words 401 to 500...
 
-> **Note:** The default solution word for local testing is `crane`. Change it in `scripts/deploy.js` before deploying.
+Deployment Complete!
+Total words in bank: 500
+Initial Game ID: 1
+Initial Solution Hash: 0x...
+
+--- Save this address in your frontend .env ---
+REACT_APP_CONTRACT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3
+```
 
 ### Configure MetaMask
 
-1. Add a custom network: RPC URL `http://127.0.0.1:8545`, Chain ID `31337`.
-2. Import one of Hardhat's test accounts using the private key shown in Terminal 1.
+1. Add custom network: RPC URL `http://127.0.0.1:8545`, Chain ID `31337`.
+2. Import one of Hardhat's test accounts using its private key.
 
 ---
 
@@ -183,63 +259,57 @@ cd frontend
 npm start
 ```
 
-The app will open at `http://localhost:3000`.
-
-If the contract was deployed to a different address, set it in the frontend:
-
-```bash
-# In frontend/.env
-REACT_APP_CONTRACT_ADDRESS=0xYourDeployedAddress
-```
+The application opens at `http://localhost:3000`.
 
 ---
 
 ## Running Tests
 
+Run the full automated test suite (30 passing tests):
+
 ```bash
-npm test
+npx hardhat test
 ```
 
-This runs the full test suite covering:
-- ✅ Deployment validation (hash, owner)
-- ✅ Correct guess detection (all Greens + GameWon event)
-- ✅ Partial match patterns (Yellow/Gray)
-- ✅ Duplicate letter handling (`apple` + `puppy`)
-- ✅ Input validation (length checks)
-- ✅ Game-over enforcement (max 6 guesses)
-- ✅ Access control (`startNewGame` owner-only)
-- ✅ Multi-player isolation
+Test coverage includes:
+- ✅ **Deployment**: Owner assignment, initial word bank loading, round ID setup.
+- ✅ **Word Bank Management**: Batch addition, access control.
+- ✅ **Dictionary Validation**: Rejection of non-dictionary words (`"zzzzz"`), acceptance of valid words regardless of case.
+- ✅ **Solution Reveal**: Hiding solution while playing, revealing upon win/loss, historical round access.
+- ✅ **Gameplay Evaluation**: Exact matches (all Greens), partial matches (Yellow/Gray), duplicate letter handling (`apple` + `puppy`).
+- ✅ **Limits & Controls**: Input length checks, game over after 6 attempts, multi-round player state isolation.
 
 ---
 
 ## Project Structure
 
 ```
-web3_dummyps/
+CryptoWordleWeb/
 ├── contracts/
 │   └── WordleOnChain.sol       # Core smart contract
 ├── scripts/
-│   └── deploy.js               # Hardhat deployment script
+│   ├── deploy.js               # Deployment script with batched 500-word upload
+│   └── words500.json           # 500 curated 5-letter English words
 ├── test/
-│   └── WordleOnChain.test.js   # Comprehensive test suite
+│   └── WordleOnChain.test.js   # 30 comprehensive Hardhat unit tests
 ├── frontend/
 │   ├── public/
 │   │   └── index.html
 │   └── src/
-│       ├── App.jsx             # Root component
-│       ├── App.css             # Dark theme styles
+│       ├── App.jsx             # Main application layout & round display
+│       ├── App.css             # Wordle dark theme styles
 │       ├── index.js            # React entry point
 │       ├── abi/
-│       │   └── WordleOnChain.json  # Contract ABI
+│       │   └── WordleOnChain.json  # Synced contract ABI
 │       ├── components/
-│       │   ├── ConnectWallet.jsx    # Wallet connection UI
-│       │   ├── WordleBoard.jsx     # 6×5 tile grid
-│       │   ├── GuessInput.jsx      # Text input + submit
-│       │   └── GameStatus.jsx      # Win/loss/error display
+│       │   ├── ConnectWallet.jsx   # MetaMask connection & network helper
+│       │   ├── WordleBoard.jsx     # 6×5 color grid with flip animations
+│       │   ├── GuessInput.jsx      # Input validation & submit handler
+│       │   └── GameStatus.jsx      # Win/loss banners & revealed solution display
 │       ├── hooks/
-│       │   └── useWordle.js        # Game state + contract calls
+│       │   └── useWordle.js        # Web3 game state, events & error parsing
 │       └── utils/
-│           └── contract.js         # ethers.js contract setup
+│           └── contract.js         # ethers.js contract connection factory
 ├── hardhat.config.js
 ├── package.json
 └── README.md
@@ -249,30 +319,37 @@ web3_dummyps/
 
 ## Smart Contract API
 
-### `submitGuess(string memory guess) → uint8[5]`
+### Core Gameplay
 
-Submit a 5-letter word guess. Returns an array of result codes per letter.
+#### `submitGuess(string memory guess) → uint8[5]`
+Submits a 5-letter guess.
+- Validates guess length (5 letters) and dictionary membership (`isValidWord`).
+- Evaluates against the active round solution.
+- Emits `GuessResult(player, gameId, guess, result, attemptNumber)`.
+- If won, emits `GameWon(player, gameId, attempts, solution)`.
+- If exhausted (6 attempts), emits `GameOver(player, gameId, solution)`.
 
-| Param   | Type     | Description              |
-|:--------|:---------|:-------------------------|
-| `guess` | `string` | 5 ASCII letters (case-insensitive) |
+#### `getRevealedSolution(uint256 _gameId) → string`
+Returns the plaintext solution word for round `_gameId`.
+- **Requires:** `gameOver[msg.sender][_gameId] == true` OR `_gameId < currentGameId`.
 
-**Reverts if:** game is over, no attempts remaining, or guess is not 5 letters.
+### Round & Word Bank Management (Owner Only)
 
-**Emits:** `GuessResult(player, guess, result, attemptNumber)`  
-**May also emit:** `GameWon(player, attempts)` or `GameOver(player)`
+#### `startRandomGame()`
+Selects a new pseudo-random word from `wordBank`, increments `currentGameId`, and commits the new `solutionHash`.
 
-### `startNewGame(string memory _solution)`
+#### `startNewGame(string memory _solution)`
+Manually sets a specific 5-letter solution (used for deterministic testing or custom daily puzzles).
 
-Owner-only. Sets a new solution word for the next round.
+#### `addWords(bytes5[] calldata _words)`
+Adds new 5-letter words to `wordBank` and enables them in `isValidWord`.
 
-### `getAttempts(address player) → uint8`
-
-View function. Returns the number of guesses a player has submitted.
-
-### `isGameOver(address player) → bool`
-
-View function. Returns whether the player's game has ended.
+### Views
+- `getAttempts(address player) → uint8`: Returns player guesses used in the current round.
+- `isGameOver(address player) → bool`: Returns whether the current round has ended for the player.
+- `hasPlayerWon(address player) → bool`: Returns whether the player solved the current round.
+- `getWordCount() → uint256`: Returns total words in `wordBank`.
+- `isValidWord(bytes5 word) → bool`: Checks if a word is in the dictionary.
 
 ---
 
@@ -280,23 +357,21 @@ View function. Returns whether the player's game has ended.
 
 | Concern                      | Status                                                     |
 |:-----------------------------|:-----------------------------------------------------------|
-| Reentrancy                   | ✅ Safe — no external calls or ETH transfers               |
-| Integer overflow             | ✅ Safe — Solidity 0.8.x built-in checks                   |
-| Access control               | ✅ `startNewGame` restricted to `owner`                    |
-| Solution privacy             | ⚠️ Extractable from storage — acceptable for MVP           |
-| Front-running                | ⚠️ Not critical for single-player; add commit-reveal for competitive |
-| Gas griefing                 | ✅ Fixed-size operations (5 bytes), bounded loops           |
+| **Reentrancy**               | ✅ Safe — state transitions occur prior to event emission; no external calls. |
+| **Integer Overflow**         | ✅ Safe — Solidity 0.8.20 includes built-in overflow checks. |
+| **Access Control**           | ✅ Sensitive functions (`startRandomGame`, `addWords`, `startNewGame`) guarded by `onlyOwner`. |
+| **Dictionary Spam**          | ✅ Safe — guesses must exist in `isValidWord`. |
+| **Solution Peeking**         | ✅ Safe — `getRevealedSolution` is restricted to finished players or expired rounds. |
+| **Gas Griefing**             | ✅ Bounded loops (fixed 5-character length, O(1) word checks). |
 
 ---
 
 ## Potential Extensions
 
-- **NFT Rewards:** Mint ERC-721 tokens for winning streaks.
-- **Token Staking:** Players stake ERC-20 tokens; winners take the pot.
-- **On-Chain Leaderboard:** Store win rates and ELO ratings as Soulbound Tokens.
-- **Chainlink VRF Word Selection:** Randomly select from an on-chain word bank.
-- **ZK Proofs:** Use Circom/Noir circuits for solution privacy with full on-chain validation.
-- **Game Rounds (`gameId`):** Key player state by round ID for proper game resets.
+- **Chainlink VRF v2.5**: Upgrade pseudo-randomness to verifiable, tamper-proof randomness for competitive staking.
+- **Zero-Knowledge Proofs (zk-SNARKs)**: Validate guesses against hidden solutions without revealing storage slots off-chain.
+- **NFT Achievements**: Mint dynamic ERC-721 trophies recording win streaks and guess distributions.
+- **ERC-20 Staking Pool**: Winner-takes-all daily jackpot pools based on fewest attempts.
 
 ---
 

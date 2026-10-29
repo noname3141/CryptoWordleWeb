@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "/home/vinayak/Vinayak/projects/CryptoWordleWeb/contracts/WordleOnChain.sol": {
-      "lastModificationDate": 1793290466150,
-      "contentHash": "48fceb2a4b291b905e780ecef5e03bbd",
+      "lastModificationDate": 1793291792914,
+      "contentHash": "099e48ff7fa6abb3c76159209195646f",
       "sourceName": "contracts/WordleOnChain.sol",
       "solcConfig": {
         "version": "0.8.20",
